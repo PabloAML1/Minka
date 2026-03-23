@@ -1,0 +1,92 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum ProjectStatus {
+  PLANNING
+  IN_PROGRESS
+  COMPLETED
+  PAUSED
+}
+
+enum MaterialStatus {
+  PENDING
+  PURCHASED
+}
+
+enum MilestoneStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+}
+
+model Project {
+  id          String        @id @default(cuid())
+  name        String
+  description String?       @db.Text
+  address     String?
+  totalBudget Decimal       @default(0) @db.Decimal(12, 2)
+  status      ProjectStatus @default(PLANNING)
+  clientName  String?
+  maestroName String?
+  startDate   DateTime?
+  endDate     DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  materials  Material[]
+  laborItems Labor[]
+  milestones Milestone[]
+
+  @@map("projects")
+}
+
+model Material {
+  id         String         @id @default(cuid())
+  name       String
+  quantity   Int            @default(0)
+  unit       String         @default("unidad")
+  unitPrice  Decimal        @default(0) @db.Decimal(10, 2)
+  totalPrice Decimal        @default(0) @db.Decimal(10, 2)
+  status     MaterialStatus @default(PENDING)
+  projectId  String
+  createdAt  DateTime       @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("materials")
+}
+
+model Labor {
+  id         String   @id @default(cuid())
+  workerName String
+  role       String
+  dailyRate  Decimal  @default(0) @db.Decimal(10, 2)
+  daysWorked Int      @default(0)
+  totalCost  Decimal  @default(0) @db.Decimal(10, 2)
+  projectId  String
+  createdAt  DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("labor")
+}
+
+model Milestone {
+  id          String          @id @default(cuid())
+  name        String
+  description String?         @db.Text
+  percentage  Decimal         @default(0) @db.Decimal(5, 2)
+  status      MilestoneStatus @default(PENDING)
+  projectId   String
+  createdAt   DateTime        @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("milestones")
+}
