@@ -1,12 +1,29 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, HardHat, Pickaxe, Calendar, User, FileText } from 'lucide-react';
+import { ArrowLeft, HardHat, User, FileText, AlertTriangle } from 'lucide-react';
 import prisma from '@/lib/prisma';
-import { Card, Badge, ProgressBar } from '@/components/ui';
+import { Badge, ProgressBar } from '@/components/ui';
+import ProjectTabsClient from '@/components/project/ProjectTabsClient';
+
+// Helper: convert Prisma Decimal fields to plain numbers recursively
+function serialize(obj: any): any {
+  if (obj === null || obj === undefined) return obj;
+  if (typeof obj === 'object' && typeof obj.toNumber === 'function') return obj.toNumber();
+  if (obj instanceof Date) return obj.toISOString();
+  if (Array.isArray(obj)) return obj.map(serialize);
+  if (typeof obj === 'object') {
+    const plain: Record<string, any> = {};
+    for (const key of Object.keys(obj)) {
+      plain[key] = serialize(obj[key]);
+    }
+    return plain;
+  }
+  return obj;
+}
 
 export default async function ProjectDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const project = await prisma.project.findUnique({
+  const rawProject = await prisma.project.findUnique({
     where: { id },
     include: {
       materials: true,
@@ -15,12 +32,18 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
     }
   });
 
-  if (!project) return notFound();
+  if (!rawProject) return notFound();
+
+  // Serialize all Decimal/Date fields to plain JS primitives
+  const project = serialize(rawProject);
 
   const materialsTotal = project.materials.reduce((acc: number, curr: any) => acc + Number(curr.totalPrice), 0);
   const laborTotal = project.laborItems.reduce((acc: number, curr: any) => acc + Number(curr.totalCost), 0);
   const totalSpent = materialsTotal + laborTotal;
   const budget = Number(project.totalBudget);
+  const remaining = budget - totalSpent;
+  const isOverBudget = totalSpent > budget;
+  const percentUsed = budget > 0 ? Math.round((totalSpent / budget) * 100) : 0;
 
   return (
     <div className="container animate-in">
@@ -42,6 +65,36 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
           </div>
         </div>
       </div>
+
+      {/* Budget Alert Banner */}
+      {isOverBudget && (
+        <div className="mb-8 p-4 rounded-lg flex items-center gap-4 animate-in" style={{ background: 'var(--danger-bg)', border: '2px solid var(--danger)' }}>
+          <AlertTriangle size={24} style={{ color: 'var(--danger)', flexShrink: 0 }} />
+          <div>
+            <p className="font-display font-bold text-sm" style={{ color: 'var(--danger)' }}>
+              ⚠ PRESUPUESTO EXCEDIDO — Desviación de ${Math.abs(remaining).toLocaleString('en-US', { minimumFractionDigits: 2 })} ({percentUsed}% del total asignado)
+            </p>
+            <p className="text-xs mt-1" style={{ color: 'var(--danger)' }}>
+              Se ha superado el límite de apropiación presupuestaria. Revise urgentemente los rubros.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Warning when close to budget (>80%) */}
+      {!isOverBudget && percentUsed >= 80 && (
+        <div className="mb-8 p-4 rounded-lg flex items-center gap-4 animate-in" style={{ background: 'var(--warning-bg)', border: '2px solid var(--warning)' }}>
+          <AlertTriangle size={24} style={{ color: 'var(--warning)', flexShrink: 0 }} />
+          <div>
+            <p className="font-display font-bold text-sm" style={{ color: 'var(--warning)' }}>
+              ALERTA DE PRESUPUESTO — Se ha consumido el {percentUsed}% de los fondos asignados.
+            </p>
+            <p className="text-xs mt-1" style={{ color: 'var(--warning)' }}>
+              Quedan ${remaining.toLocaleString('en-US', { minimumFractionDigits: 2 })} disponibles del presupuesto original.
+            </p>
+          </div>
+        </div>
+      )}
 
       <div className="grid md:grid-cols-3 gap-6 mb-12 delay-100 animate-in">
         <div className="card card-brutalist">
@@ -76,8 +129,17 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
         </div>
       </div>
 
-      <div className="card mb-12 delay-200 animate-in">
-        <h3 className="font-display font-bold text-xl mb-6 text-primary">Margen de Desviación</h3>
+      {/* Budget Remaining Card */}
+      <div className="card mb-12 delay-200 animate-in" style={isOverBudget ? { borderColor: 'var(--danger)', borderWidth: '2px' } : {}}>
+        <div className="flex justify-between items-center mb-6">
+          <h3 className="font-display font-bold text-xl text-primary">Margen de Desviación</h3>
+          <div className="flex items-center gap-4">
+            <span className="text-sm text-muted font-medium">Disponible:</span>
+            <span className={`font-display font-bold text-xl ${isOverBudget ? 'text-danger' : 'text-success'}`}>
+              {isOverBudget ? '-' : ''}${Math.abs(remaining).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+            </span>
+          </div>
+        </div>
         <ProgressBar 
           label={`Inversión actual: $${totalSpent.toLocaleString()} / $${budget.toLocaleString()}`} 
           current={totalSpent} 
@@ -85,54 +147,7 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
         />
       </div>
 
-      <div className="flex gap-8 border-b mb-8 delay-300 animate-in" style={{ borderColor: 'var(--border)' }}>
-        <div className="pb-3 text-primary font-display font-bold uppercase tracking-wider text-sm border-b-2" style={{ borderColor: 'var(--primary)', cursor: 'pointer' }}>Inventario de Materiales</div>
-        <div className="pb-3 text-muted font-display font-bold uppercase tracking-wider text-sm hover:text-primary transition-colors" style={{ cursor: 'pointer' }}>Gestión de Cuadrilla</div>
-      </div>
-
-      <div className="flex justify-between items-center mb-6 delay-300 animate-in">
-        <h2 className="text-2xl font-display font-bold text-primary">Suministros Registrados</h2>
-        <button className="btn btn-secondary shadow-md">
-          + Agregar Suministro
-        </button>
-      </div>
-
-      <div className="card p-0 overflow-x-auto delay-300 animate-in">
-        <table className="w-full text-left border-collapse">
-          <thead className="bg-surface text-muted text-xs uppercase tracking-wider font-display">
-            <tr>
-              <th className="p-4 border-b font-semibold" style={{ borderColor: 'var(--border)' }}>Ítem / Suministro</th>
-              <th className="p-4 border-b font-semibold" style={{ borderColor: 'var(--border)' }}>Volumen</th>
-              <th className="p-4 border-b font-semibold" style={{ borderColor: 'var(--border)' }}>Costo Unitario</th>
-              <th className="p-4 border-b font-semibold" style={{ borderColor: 'var(--border)' }}>Costo Total</th>
-              <th className="p-4 border-b font-semibold" style={{ borderColor: 'var(--border)' }}>Estado</th>
-            </tr>
-          </thead>
-          <tbody>
-            {project.materials.length === 0 ? (
-              <tr>
-                <td colSpan={5} className="p-8 text-center text-muted font-medium">
-                  No se han registrado suministros. El historial está vacío.
-                </td>
-              </tr>
-            ) : (
-              project.materials.map((mat: any) => (
-                <tr key={mat.id} className="hover:bg-surface transition-colors border-b" style={{ borderColor: 'var(--border)' }}>
-                  <td className="p-4 font-semibold text-primary">{mat.name}</td>
-                  <td className="p-4 text-muted font-medium">{mat.quantity} {mat.unit}</td>
-                  <td className="p-4 font-display font-semibold text-primary">${Number(mat.unitPrice).toFixed(2)}</td>
-                  <td className="p-4 font-display font-bold text-primary">${Number(mat.totalPrice).toFixed(2)}</td>
-                  <td className="p-4">
-                    <Badge variant={mat.status === 'PURCHASED' ? 'success' : 'warning'}>
-                      {mat.status === 'PURCHASED' ? 'Comprado' : 'Pendiente'}
-                    </Badge>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+      <ProjectTabsClient project={project} budget={budget} totalSpent={totalSpent} />
     </div>
   );
 }
